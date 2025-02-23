@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+cmd/pss-backend/pss-backend
 
 # Test binary, built with `go test -c`
 *.test
@@ -20,6 +21,7 @@
 # Go workspace file
 go.work
 go.work.sum
+lib.txt
 
 # env file
-.env
+cmd/pss-backend/.env
