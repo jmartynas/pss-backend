@@ -1,0 +1,5 @@
+curl -X POST http://localhost:8000/v1/client/register -d '{"email":"asdf@asdf.com","name":"asdfasdf","password":"asdfasdf"}'
+
+curl -X POST http://localhost:8000/v1/client/login -H "Content-Type: application/json" -d '{"email":"asdf@asdf.com","password":"asdfasdf"}'
+
+curl http://localhost:8000/v1/client/logout

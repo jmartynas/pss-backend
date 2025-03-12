@@ -1,6 +1,6 @@
 CREATE TABLE users (
     	email VARCHAR(60) PRIMARY KEY NOT NULL,
-    	google_id VARCHAR(30) UNIQUE,
+    	google_id VARCHAR(30),
     	name VARCHAR(255) NOT NULL,
     	password_hash VARCHAR(255),
     	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

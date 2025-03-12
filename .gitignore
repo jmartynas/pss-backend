@@ -25,3 +25,6 @@ lib.txt
 
 # env file
 cmd/pss-backend/.env
+
+# other
+cookies.txt

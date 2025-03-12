@@ -2,10 +2,10 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
 	"os"
 
+	"github.com/boj/redistore"
 	"github.com/bxcodec/dbresolver/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
@@ -34,6 +34,8 @@ var config struct {
 		ClientSecret string `envconfig:"client_secret"`
 		RedirectURL  string `envconfig:"redirect_url"`
 	}
+
+	RedisURL string `envconfig:"redis_url"`
 }
 
 func main() {
@@ -41,7 +43,6 @@ func main() {
 		logrus.WithError(err).Error("parsing environment variables")
 		return
 	}
-
 	log := logrus.New()
 	if config.Production {
 		file, err := os.OpenFile("pss_backend.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -64,6 +65,10 @@ func main() {
 		log.WithError(err).Error("connecting to master DB")
 		return
 	}
+	if err := master.Ping(); err != nil {
+		log.WithError(err).Error("could not ping master database")
+		return
+	}
 	conns := []dbresolver.OptionFunc{
 		dbresolver.WithPrimaryDBs(master),
 	}
@@ -83,7 +88,7 @@ func main() {
 	defer dbc.Close()
 
 	// migrations
-	dbMigrations, err := migrate.New(config.Migrations, config.Dbm)
+	dbMigrations, err := migrate.New(config.Migrations, "mysql://"+config.Dbm)
 	if err != nil {
 		logrus.WithError(err).Error("creating migrations")
 		return
@@ -92,8 +97,6 @@ func main() {
 		logrus.WithError(err).Error("doing migrations")
 		return
 	}
-
-	router := http.NewServeMux()
 
 	// oauth2 config
 	var oauth *oauth2.Config
@@ -108,9 +111,22 @@ func main() {
 			Endpoint:     google.Endpoint,
 		}
 	}
-	store := sessions.NewCookieStore(config.SessionKey)
+
+	var store sessions.Store
+	if config.RedisURL != "" {
+		redisStore, err := redistore.NewRediStoreWithURL(10, config.RedisURL, config.SessionKey)
+		if err != nil {
+			logrus.WithError(err).Error("creating redis session store")
+			return
+		}
+		defer redisStore.Close()
+		store = redisStore
+	} else {
+		store = sessions.NewCookieStore(config.SessionKey)
+	}
 	backend := NewBackend(dbc, store, oauth, log)
 
+	router := http.NewServeMux()
 	router.Handle("/v1/client/", http.StripPrefix("/v1/client", backend.Handlers()))
 
 	server := http.Server{
@@ -119,7 +135,7 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		fmt.Println(err)
+		logrus.WithError(err).Error("listening and serving")
 		return
 	}
 }

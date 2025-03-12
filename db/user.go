@@ -17,10 +17,10 @@ func SelectPassword(
 	email string,
 ) ([]byte, error) {
 	var hashedPassword string
+
 	if err := squirrel.Select("users.password_hash").
 		From("users").
-		Where(squirrel.Eq{"email": email}).
-		Limit(1).
+		Where(squirrel.Eq{"LOWER(users.email)": email}).
 		RunWith(dbc).
 		QueryRowContext(ctx).
 		Scan(&hashedPassword); err != nil {
@@ -34,7 +34,10 @@ func SelectUser(ctx context.Context, dbc dbresolver.DB, email string) (*structs.
 	var user *structs.User
 	err := squirrel.Select("users.email, users.google_id, users.name").
 		From("users").
-		Where(squirrel.Eq{"users.email": email}).QueryRowContext(ctx).Scan(&user)
+		Where(squirrel.Eq{"users.email": email}).
+		RunWith(dbc).
+		QueryRowContext(ctx).
+		Scan(&user)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +48,12 @@ func SelectUser(ctx context.Context, dbc dbresolver.DB, email string) (*structs.
 func InsertUser(ctx context.Context, dbc dbresolver.DB, user *structs.User) error {
 	_, err := squirrel.Insert("users").
 		SetMap(map[string]any{
-			"email":     user.Email,
-			"google_id": user.ID,
-			"name":      user.Name,
-		}).RunWith(dbc).
+			"email":         user.Email,
+			"google_id":     user.GoogleID,
+			"name":          user.Name,
+			"password_hash": user.Password,
+		}).
+		RunWith(dbc).
 		ExecContext(ctx)
 
 	return err
