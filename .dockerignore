@@ -1,0 +1,9 @@
+frontend/
+bin/
+dist/
+*.exe
+.env
+.env.*
+.git/
+.gitignore
+*.md

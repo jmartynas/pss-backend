@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker --context default info --format '{{.ServerVersion}}')",
+      "Bash(docker exec *)"
+    ]
+  }
+}
