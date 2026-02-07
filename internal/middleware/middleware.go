@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -78,11 +79,17 @@ func GetRealIP(ctx context.Context) string {
 	return ""
 }
 
-func RequireAuth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
+func RequireAuth(db *sql.DB, jwtSecret string, log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, _ := auth.GetSession(r, jwtSecret)
+			claims, err := auth.GetSession(r, jwtSecret)
 			if claims == nil {
+				if log != nil {
+					log.WarnContext(r.Context(), "auth failed: missing or invalid session",
+						slog.String("request_id", GetRequestID(r.Context())),
+						slog.String("path", r.URL.Path),
+						slog.Any("error", err))
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -91,6 +98,12 @@ func RequireAuth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 			if claims.SessionID != uuid.Nil && db != nil {
 				row, err := session.GetByToken(r.Context(), db, claims.SessionID.String())
 				if err != nil || row == nil {
+					if log != nil {
+						log.WarnContext(r.Context(), "auth failed: session not found or expired",
+							slog.String("request_id", GetRequestID(r.Context())),
+							slog.String("path", r.URL.Path),
+							slog.Any("error", err))
+					}
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusUnauthorized)
 					json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -179,6 +192,7 @@ func RealIPWith(trustedNetworks []*net.IPNet) func(http.Handler) http.Handler {
 	}
 }
 
+// ParseTrustedProxyCIDRs parses a comma-separated list of CIDRs. Returns an error if any entry is invalid.
 func ParseTrustedProxyCIDRs(csv string) ([]*net.IPNet, error) {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
@@ -192,7 +206,7 @@ func ParseTrustedProxyCIDRs(csv string) ([]*net.IPNet, error) {
 		}
 		_, n, err := net.ParseCIDR(s)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", s, err)
 		}
 		out = append(out, n)
 	}

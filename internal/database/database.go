@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/jmartynas/pss-backend/internal/config"
@@ -18,16 +19,28 @@ func Open(cfg config.MySQLConfig) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open mysql: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	db.SetMaxOpenConns(maxOpen)
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	db.SetMaxIdleConns(maxIdle)
+	connLife := time.Duration(cfg.ConnMaxLifetimeSec) * time.Second
+	if connLife <= 0 {
+		connLife = 5 * time.Minute
+	}
+	db.SetConnMaxLifetime(connLife)
 
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("ping mysql: %w", err)
 	}
 
 	return db, nil

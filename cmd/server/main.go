@@ -20,6 +20,10 @@ var migrationFS embed.FS
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(true, false); err != nil {
+		slog.Default().Error("config validation failed", slog.Any("error", err))
+		os.Exit(1)
+	}
 	log := newLogger(cfg.LogLevel)
 
 	db, err := database.Open(cfg.MySQL)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -33,7 +34,7 @@ func Upsert(ctx context.Context, db *sql.DB, email, name, provider, providerSub 
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("user upsert: %w", err)
 	}
 	defer rows.Close()
 
@@ -47,7 +48,10 @@ func Upsert(ctx context.Context, db *sql.DB, email, name, provider, providerSub 
 			id, _ = uuid.Parse(selected)
 		}
 	}
-	return id, rows.Err()
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, fmt.Errorf("user upsert result: %w", err)
+	}
+	return id, nil
 }
 
 func GetByID(ctx context.Context, db *sql.DB, id uuid.UUID) (*User, error) {
@@ -58,7 +62,7 @@ func GetByID(ctx context.Context, db *sql.DB, id uuid.UUID) (*User, error) {
 		id.String(),
 	).Scan(&idStr, &u.Email, &u.Name, &u.Provider, &u.ProviderSub)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 	u.ID, _ = uuid.Parse(idStr)
 	return &u, nil

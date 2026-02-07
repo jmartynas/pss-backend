@@ -13,6 +13,8 @@ import (
 	"github.com/jmartynas/pss-backend/internal/middleware"
 )
 
+const oauthUserInfoTimeout = 10 * time.Second
+
 type Server struct {
 	httpServer *http.Server
 	log        *slog.Logger
@@ -24,6 +26,7 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", handlers.Health)
+	mux.HandleFunc("GET /ready", handlers.Ready(db))
 
 	if cfg.OAuth.BaseURL != "" && cfg.OAuth.JWTSecret != "" && len(cfg.OAuth.Providers) > 0 {
 		secure := cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != ""
@@ -35,6 +38,7 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 			DB:         db,
 			Log:        log,
 			Secure:     secure,
+			HTTPClient: &http.Client{Timeout: oauthUserInfoTimeout},
 		}
 		mux.HandleFunc("GET /auth/{provider}/login", authH.Login)
 		mux.HandleFunc("GET /auth/{provider}/callback", authH.Callback)
@@ -42,7 +46,11 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 		mux.HandleFunc("GET /auth/logout", authH.Logout)
 	}
 
-	trustedProxyNetworks, _ := middleware.ParseTrustedProxyCIDRs(cfg.Server.TrustedProxyCIDRs)
+	trustedProxyNetworks, err := middleware.ParseTrustedProxyCIDRs(cfg.Server.TrustedProxyCIDRs)
+	if err != nil {
+		log.Warn("invalid trusted proxy CIDRs, real IP will use connection remote addr", "error", err, "value", cfg.Server.TrustedProxyCIDRs)
+		trustedProxyNetworks = nil
+	}
 
 	h := middleware.NoCache(mux)
 	h = middleware.Recoverer(log)(h)

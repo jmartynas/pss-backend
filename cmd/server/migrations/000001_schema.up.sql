@@ -7,6 +7,6 @@ CREATE TABLE users (
   status ENUM('active', 'blocked') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY users_email_unique (email)
+  UNIQUE KEY users_email_unique (email),
   UNIQUE KEY users_provider_unique (provider, provider_sub)
 );

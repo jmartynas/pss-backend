@@ -1,12 +1,20 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/jmartynas/pss-backend/internal/auth"
+)
+
+var (
+	ErrMySQLRequired   = errors.New("config: MySQL required (set MYSQL_DSN or MYSQL_HOST)")
+	ErrOAuthIncomplete = errors.New("config: OAuth requires OAUTH_BASE_URL, OAUTH_JWT_SECRET, and at least one provider with CLIENT_ID and CLIENT_SECRET")
+	ErrJWTSecretLength = errors.New("config: OAUTH_JWT_SECRET must be at least 32 characters")
+	ErrInvalidLogLevel = errors.New("config: LOG_LEVEL must be debug, info, warn, or error")
 )
 
 type Config struct {
@@ -24,12 +32,15 @@ type OAuthConfig struct {
 }
 
 type MySQLConfig struct {
-	RawDSN   string
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Database string
+	RawDSN        string
+	Host          string
+	Port          int
+	User          string
+	Password      string
+	Database      string
+	MaxOpenConns  int
+	MaxIdleConns  int
+	ConnMaxLifetimeSec int
 }
 
 type ServerConfig struct {
@@ -41,6 +52,30 @@ type ServerConfig struct {
 	TLSCertFile       string
 	TLSKeyFile        string
 	TrustedProxyCIDRs string
+}
+
+// Validate checks required settings. Call after Load() when the server needs DB or OAuth.
+func (c *Config) Validate(requireMySQL, requireOAuth bool) error {
+	if requireMySQL {
+		dsn := c.MySQL.DSN()
+		if dsn == "" {
+			return ErrMySQLRequired
+		}
+	}
+	if requireOAuth {
+		if c.OAuth.BaseURL == "" || c.OAuth.JWTSecret == "" || len(c.OAuth.Providers) == 0 {
+			return ErrOAuthIncomplete
+		}
+		if len(c.OAuth.JWTSecret) < 32 {
+			return ErrJWTSecretLength
+		}
+	}
+	switch c.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		return ErrInvalidLogLevel
+	}
+	return nil
 }
 
 func Load() *Config {
@@ -56,12 +91,15 @@ func Load() *Config {
 			TrustedProxyCIDRs: getEnv("TRUSTED_PROXY_CIDRS", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"),
 		},
 		MySQL: MySQLConfig{
-			RawDSN:   getEnv("MYSQL_DSN", ""),
-			Host:     getEnv("MYSQL_HOST", ""),
-			Port:     getEnvInt("MYSQL_PORT", 3306),
-			User:     getEnv("MYSQL_USER", "root"),
-			Password: getEnv("MYSQL_PASSWORD", ""),
-			Database: getEnv("MYSQL_DATABASE", "pss"),
+			RawDSN:             getEnv("MYSQL_DSN", ""),
+			Host:               getEnv("MYSQL_HOST", ""),
+			Port:               getEnvInt("MYSQL_PORT", 3306),
+			User:               getEnv("MYSQL_USER", "root"),
+			Password:           getEnv("MYSQL_PASSWORD", ""),
+			Database:           getEnv("MYSQL_DATABASE", "pss"),
+			MaxOpenConns:       getEnvInt("MYSQL_MAX_OPEN_CONNS", 25),
+			MaxIdleConns:       getEnvInt("MYSQL_MAX_IDLE_CONNS", 5),
+			ConnMaxLifetimeSec: getEnvInt("MYSQL_CONN_MAX_LIFETIME_SEC", 300),
 		},
 		OAuth:    loadOAuthConfig(),
 		LogLevel: getEnv("LOG_LEVEL", "info"),

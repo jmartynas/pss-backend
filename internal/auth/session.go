@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -65,7 +66,7 @@ func setSessionCookie(w http.ResponseWriter, secret string, claims Claims, secur
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {
-		return err
+		return fmt.Errorf("sign session token: %w", err)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
@@ -120,9 +121,9 @@ func GetSession(r *http.Request, secret string) (*Claims, error) {
 		return nil, errs.ErrInvalidSession
 	}
 	var claims Claims
-	token, err := jwt.ParseWithClaims(c.Value, &claims, func(*jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(c.Value, &claims, func(t *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !token.Valid {
 		return nil, errs.ErrInvalidSession
 	}

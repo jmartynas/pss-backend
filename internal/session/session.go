@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ func Create(ctx context.Context, db *sql.DB, userID uuid.UUID, maxAge time.Durat
 	_, err = db.ExecContext(ctx, `INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`,
 		sessionID.String(), userID.String(), expiresAt)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("insert session: %w", err)
 	}
 	return sessionID, nil
 }
@@ -37,7 +38,7 @@ func GetByToken(ctx context.Context, db *sql.DB, token string) (*Row, error) {
 		token,
 	).Scan(&userIDStr, &r.ExpiresAt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get session by token: %w", err)
 	}
 	r.UserID, _ = uuid.Parse(userIDStr)
 	return &r, nil
@@ -50,10 +51,16 @@ func ExtendExpiry(ctx context.Context, db *sql.DB, token string, maxAge time.Dur
 	newExpires := time.Now().Add(maxAge)
 	_, err := db.ExecContext(ctx, `UPDATE sessions SET expires_at = ? WHERE token = ? AND expires_at > NOW()`,
 		newExpires, token)
-	return err
+	if err != nil {
+		return fmt.Errorf("extend session expiry: %w", err)
+	}
+	return nil
 }
 
 func DeleteByToken(ctx context.Context, db *sql.DB, token string) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
-	return err
+	if err != nil {
+		return fmt.Errorf("delete session by token: %w", err)
+	}
+	return nil
 }

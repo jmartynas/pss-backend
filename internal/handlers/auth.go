@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmartynas/pss-backend/internal/auth"
@@ -17,6 +18,9 @@ import (
 
 	"golang.org/x/oauth2"
 )
+
+// DefaultOAuthUserInfoTimeout is the timeout for OAuth provider userinfo requests.
+const DefaultOAuthUserInfoTimeout = 10 * time.Second
 
 type oauthUserInfo struct {
 	ID             string `json:"id"`
@@ -31,13 +35,14 @@ type oauthUserInfo struct {
 }
 
 type AuthHandler struct {
-	BaseURL    string
-	JWTSecret  string
-	Providers  map[string]auth.ProviderConfig
-	SuccessURL string
-	DB         *sql.DB
-	Log        *slog.Logger
-	Secure     bool
+	BaseURL     string
+	JWTSecret   string
+	Providers   map[string]auth.ProviderConfig
+	SuccessURL  string
+	DB          *sql.DB
+	Log         *slog.Logger
+	Secure      bool
+	HTTPClient  *http.Client
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +74,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   auth.StateMaxAge,
 		HttpOnly: true,
+		Secure:   h.Secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -118,7 +124,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "state mismatch", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: auth.StateCookie, Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: auth.StateCookie, Value: "", Path: "/", MaxAge: -1, Secure: h.Secure})
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -149,8 +155,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	name := ""
 	emailVerified := false
 	if spec.UserInfoURL != "" && tok.AccessToken != "" {
-		var ver bool
-		sub, email, name, EmailVerified, _ = h.fetchUserInfo(r.Context(), spec.UserInfoURL, tok.AccessToken, provider)
+		sub, email, name, emailVerified, _ = h.fetchUserInfo(r.Context(), spec.UserInfoURL, tok.AccessToken, provider)
 	}
 	if sub == "" {
 		sub = tok.AccessToken[:min(32, len(tok.AccessToken))]
@@ -206,7 +211,11 @@ func (h *AuthHandler) fetchUserInfo(ctx context.Context, userInfoURL, accessToke
 	if provider == "github" {
 		req.Header.Set("Accept", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := h.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: DefaultOAuthUserInfoTimeout}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", "", false, err
 	}
