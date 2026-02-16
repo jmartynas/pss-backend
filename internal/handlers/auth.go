@@ -166,34 +166,35 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID uuid.UUID
-	if h.DB != nil && email != "" {
-		var errUpsert error
-		userID, errUpsert = user.Upsert(r.Context(), h.DB, email, name, provider, sub)
-		if errUpsert != nil {
-			h.Log.Error("user upsert", slog.String("email", email), slog.Any("error", errUpsert))
-		}
+	if h.DB == nil {
+		h.Log.Error("callback: database required for login")
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
 	}
-	if userID == uuid.Nil {
-		if err := auth.SetSession(w, h.JWTSecret, provider, sub, email, h.Secure); err != nil {
-			h.Log.Error("session", slog.Any("error", err))
-			http.Error(w, "session failed", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		sessionID, err := session.Create(r.Context(), h.DB, userID, session.DefaultMaxAge)
-		if err != nil {
-			h.Log.Error("session create", slog.Any("error", err))
-			http.Error(w, "session failed", http.StatusInternalServerError)
-			return
-		}
-		if err := auth.SetSessionWithID(w, h.JWTSecret, sessionID, userID, provider, sub, email, h.Secure); err != nil {
-			h.Log.Error("session", slog.Any("error", err))
-			http.Error(w, "session failed", http.StatusInternalServerError)
-			return
-		}
-		auth.SetRefreshTokenCookie(w, sessionID.String(), h.Secure)
+	if email == "" {
+		http.Error(w, "verified email required for login", http.StatusForbidden)
+		return
 	}
+
+	userID, err := user.Upsert(r.Context(), h.DB, email, name, provider, sub)
+	if err != nil {
+		h.Log.Error("user upsert", slog.String("email", email), slog.Any("error", err))
+		http.Error(w, "login failed", http.StatusInternalServerError)
+		return
+	}
+
+	sessionID, err := session.Create(r.Context(), h.DB, userID, session.DefaultMaxAge)
+	if err != nil {
+		h.Log.Error("session create", slog.Any("error", err))
+		http.Error(w, "login failed", http.StatusInternalServerError)
+		return
+	}
+	if err := auth.SetSessionWithID(w, h.JWTSecret, sessionID, userID, provider, sub, email, h.Secure); err != nil {
+		h.Log.Error("session", slog.Any("error", err))
+		http.Error(w, "session failed", http.StatusInternalServerError)
+		return
+	}
+	auth.SetRefreshTokenCookie(w, sessionID.String(), h.Secure)
 
 	redirectTo := h.SuccessURL
 	if redirectTo == "" {

@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -18,7 +19,13 @@ func Run(db *sql.DB, fsys fs.FS, dir string, log *slog.Logger) error {
 		return err
 	}
 
-	driver, err := mysql.WithInstance(db, &mysql.Config{})
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		return fmt.Errorf("migrations db conn: %w", err)
+	}
+	defer conn.Close()
+
+	driver, err := mysql.WithConnection(context.Background(), conn, &mysql.Config{})
 	if err != nil {
 		return err
 	}

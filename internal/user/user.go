@@ -24,33 +24,22 @@ func Upsert(ctx context.Context, db *sql.DB, email, name, provider, providerSub 
 
 	id = uuid.New()
 	idStr := id.String()
-	query := `INSERT INTO users (id, email, name, provider, provider_sub) VALUES (?, ?, ?, ?, ?) AS u
+	_, err = db.ExecContext(ctx, `INSERT INTO users (id, email, name, provider, provider_sub) VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
-		  name = COALESCE(u.name, users.name),
-		  provider = u.provider,
-		  provider_sub = u.provider_sub;
-		SELECT id FROM users WHERE provider_sub = ?, provider = ?`
-	args := []interface{}{idStr, email, nullStr(name), provider, providerSub, providerSub, provider}
-
-	rows, err := db.QueryContext(ctx, query, args...)
+		  name = COALESCE(VALUES(name), name),
+		  provider = VALUES(provider),
+		  provider_sub = VALUES(provider_sub)`,
+		idStr, email, nullStr(name), provider, providerSub)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("user upsert: %w", err)
 	}
-	defer rows.Close()
 
-	if !rows.NextResultSet() {
-		return id, nil
+	err = db.QueryRowContext(ctx, `SELECT id FROM users WHERE provider_sub = ? AND provider = ?`,
+		providerSub, provider).Scan(&idStr)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("user upsert: %w", err)
 	}
-	var selected string
-	if rows.Next() {
-		rows.Scan(&selected)
-		if selected != "" {
-			id, _ = uuid.Parse(selected)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return uuid.Nil, fmt.Errorf("user upsert result: %w", err)
-	}
+	id, _ = uuid.Parse(idStr)
 	return id, nil
 }
 
