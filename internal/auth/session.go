@@ -121,7 +121,7 @@ func GetSession(r *http.Request, secret string) (*Claims, error) {
 		return nil, errs.ErrInvalidSession
 	}
 	var claims Claims
-	token, err := jwt.ParseWithClaims(c.Value, &claims, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(c.Value, &claims, func(*jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !token.Valid {

@@ -3,7 +3,7 @@
 -include .env
 export
 
-.PHONY: run build tidy
+.PHONY: run build tidy test
 
 run: build
 	./bin/server
@@ -13,3 +13,6 @@ build:
 
 tidy:
 	go mod tidy
+
+test:
+	go test ./...
