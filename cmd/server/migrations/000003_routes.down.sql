@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS participants;
+DROP TABLE IF EXISTS route_stops;
+DROP TABLE IF EXISTS applications;
+DROP TABLE IF EXISTS routes;
