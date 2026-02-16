@@ -28,7 +28,12 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 	mux.HandleFunc("GET /health", handlers.Health)
 	mux.HandleFunc("GET /ready", handlers.Ready(db))
 
+	routesH := &handlers.RoutesHandler{DB: db, Log: log}
+	mux.HandleFunc("GET /routes/{id}", routesH.GetRoute)
+	mux.HandleFunc("POST /routes/search", routesH.SearchRoutes)
+
 	if cfg.OAuth.BaseURL != "" && cfg.OAuth.JWTSecret != "" && len(cfg.OAuth.Providers) > 0 {
+		mux.Handle("POST /routes", middleware.Authorize(db, cfg.OAuth.JWTSecret, log)(http.HandlerFunc(routesH.CreateRoute)))
 		secure := cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != ""
 		authH := &handlers.AuthHandler{
 			BaseURL:    cfg.OAuth.BaseURL,

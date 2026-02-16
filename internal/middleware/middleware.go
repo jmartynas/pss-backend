@@ -14,6 +14,7 @@ import (
 
 	"github.com/jmartynas/pss-backend/internal/auth"
 	"github.com/jmartynas/pss-backend/internal/session"
+	"github.com/jmartynas/pss-backend/internal/user"
 
 	"github.com/google/uuid"
 )
@@ -24,6 +25,7 @@ const (
 	RequestIDKey    contextKey = "request_id"
 	RealIPKey       contextKey = "real_ip"
 	SessionClaimsKey contextKey = "session_claims"
+	UserKey         contextKey = "user"
 )
 
 type responseWriter struct {
@@ -119,6 +121,76 @@ func RequireAuth(db *sql.DB, jwtSecret string, log *slog.Logger) func(http.Handl
 func GetSessionClaims(ctx context.Context) *auth.Claims {
 	if c, ok := ctx.Value(SessionClaimsKey).(*auth.Claims); ok {
 		return c
+	}
+	return nil
+}
+
+// Authorize ensures the request has a valid session before allowing access.
+// Validates the JWT cookie, verifies the session exists in the database when applicable,
+// fetches the user from the database, and puts the user in context for downstream handlers.
+func Authorize(db *sql.DB, jwtSecret string, log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, err := auth.GetSession(r, jwtSecret)
+			if claims == nil {
+				if log != nil {
+					log.WarnContext(r.Context(), "auth failed: missing or invalid session",
+						slog.String("request_id", GetRequestID(r.Context())),
+						slog.String("path", r.URL.Path),
+						slog.Any("error", err))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+			if claims.SessionID != uuid.Nil && db != nil {
+				row, err := session.GetByToken(r.Context(), db, claims.SessionID.String())
+				if err != nil || row == nil {
+					if log != nil {
+						log.WarnContext(r.Context(), "auth failed: session not found or expired",
+							slog.String("request_id", GetRequestID(r.Context())),
+							slog.String("path", r.URL.Path),
+							slog.Any("error", err))
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+					return
+				}
+			}
+			if claims.UserID == uuid.Nil || db == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+			u, err := user.GetByID(r.Context(), db, claims.UserID)
+			if err != nil || u == nil {
+				if log != nil {
+					log.WarnContext(r.Context(), "auth failed: user not found",
+						slog.String("request_id", GetRequestID(r.Context())),
+						slog.String("path", r.URL.Path),
+						slog.String("user_id", claims.UserID.String()),
+						slog.Any("error", err))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+			ctx := context.WithValue(r.Context(), UserKey, u)
+			ctx = context.WithValue(ctx, SessionClaimsKey, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// GetUser returns the authenticated user from the request context.
+// Returns nil if the request was not authorized or no user was set.
+func GetUser(ctx context.Context) *user.User {
+	if u, ok := ctx.Value(UserKey).(*user.User); ok {
+		return u
 	}
 	return nil
 }

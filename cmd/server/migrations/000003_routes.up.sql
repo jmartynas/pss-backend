@@ -1,7 +1,6 @@
 CREATE TABLE routes (
   id CHAR(36) NOT NULL PRIMARY KEY,
   creator_user_id CHAR(36) NOT NULL,
-  name VARCHAR(255) NOT NULL,
   description TEXT DEFAULT NULL,
   start_lat DECIMAL(10, 8) NOT NULL,
   start_lng DECIMAL(11, 8) NOT NULL,
@@ -59,12 +58,16 @@ CREATE TABLE route_stops (
 
 CREATE TABLE participants (
   route_id CHAR(36) NOT NULL,
+  application_id CHAR(36) NOT NULL,
   user_id CHAR(36) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMP NULL DEFAULT NULL,
-  PRIMARY KEY (route_id, user_id),
+  PRIMARY KEY (route_id, application_id),
+  UNIQUE KEY participants_application_unique (application_id),
   KEY participants_deleted_at (deleted_at),
+  KEY participants_application_id (application_id),
   KEY participants_user_id (user_id),
   CONSTRAINT participants_route_fk FOREIGN KEY (route_id) REFERENCES routes (id) ON DELETE CASCADE,
+  CONSTRAINT participants_application_fk FOREIGN KEY (application_id) REFERENCES applications (id) ON DELETE CASCADE,
   CONSTRAINT participants_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
