@@ -4,7 +4,6 @@ import (
 	"math"
 )
 
-// Haversine returns distance in kilometers between two points.
 func Haversine(lat1, lng1, lat2, lng2 float64) float64 {
 	const earthRadiusKm = 6371
 	dLat := (lat2 - lat1) * math.Pi / 180
@@ -18,10 +17,6 @@ func Haversine(lat1, lng1, lat2, lng2 float64) float64 {
 
 const maxInterleavings = 500
 
-// CalculateDeviation computes the path deviation between a route (with its stops) and the search input.
-// Finds the best interleaving of participants' stops (each participant's order preserved) that
-// minimizes the searching user's deviation. Each user stop is placed in the segment that minimizes
-// its distance for that ordering.
 func CalculateDeviation(route *Route, search SearchInput) float64 {
 	baseDev := Haversine(search.StartLat, search.StartLng, route.StartLat, route.StartLng) +
 		Haversine(search.EndLat, search.EndLng, route.EndLat, route.EndLng)
@@ -43,9 +38,7 @@ func CalculateDeviation(route *Route, search SearchInput) float64 {
 	return baseDev + minStopDev
 }
 
-// groupStopsByParticipant groups stops by application_id (nil = creator). Each group keeps position order.
 func groupStopsByParticipant(stops []Stop) [][]Stop {
-	// Use a stable key for grouping: application_id string or "creator"
 	type key struct {
 		appID string
 	}
@@ -68,7 +61,6 @@ func groupStopsByParticipant(stops []Stop) [][]Stop {
 	return ordered
 }
 
-// allInterleavings returns all valid merges of groups (each group's order preserved), up to max.
 func allInterleavings(groups [][]Stop, max int) [][]Stop {
 	if len(groups) == 0 {
 		return nil
@@ -119,7 +111,6 @@ func totalLen(groups [][]Stop) int {
 	return n
 }
 
-// deviationForStops returns the sum of min distances from each search stop to the route segments.
 func deviationForStops(startLat, startLng, endLat, endLng float64, stops []Stop, search SearchInput) float64 {
 	segments := buildSegmentsFromStops(startLat, startLng, endLat, endLng, stops)
 	dev := 0.0
@@ -129,7 +120,6 @@ func deviationForStops(startLat, startLng, endLat, endLng float64, stops []Stop,
 	return dev
 }
 
-// buildSegmentsFromStops returns segment midpoints for the given stop order.
 func buildSegmentsFromStops(startLat, startLng, endLat, endLng float64, stops []Stop) [][2]float64 {
 	if len(stops) == 0 {
 		return [][2]float64{{(startLat + endLat) / 2, (startLng + endLng) / 2}}
