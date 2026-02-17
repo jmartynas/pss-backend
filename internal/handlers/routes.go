@@ -96,3 +96,75 @@ func (h *RoutesHandler) SearchRoutes(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(routes)
 }
+
+func (h *RoutesHandler) GetMyRoutes(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r.Context())
+	if u == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	filterStr := r.URL.Query().Get("filter")
+	var filter route.RouteFilter
+	switch filterStr {
+	case "active":
+		filter = route.RouteFilterActive
+	case "past":
+		filter = route.RouteFilterPast
+	default:
+		filter = ""
+	}
+
+	routes, err := route.GetRoutesByCreator(r.Context(), h.DB, u.ID, filter)
+	if err != nil {
+		h.Log.Error("get my routes", slog.Any("error", err))
+		http.Error(w, "failed to get routes", http.StatusInternalServerError)
+		return
+	}
+
+	if routes == nil {
+		routes = []route.Route{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(routes)
+}
+
+func (h *RoutesHandler) GetMyParticipatedRoutes(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r.Context())
+	if u == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	filterStr := r.URL.Query().Get("filter")
+	var filter route.RouteFilter
+	switch filterStr {
+	case "active":
+		filter = route.RouteFilterActive
+	case "past":
+		filter = route.RouteFilterPast
+	default:
+		filter = ""
+	}
+
+	routes, err := route.GetRoutesByParticipant(r.Context(), h.DB, u.ID, filter)
+	if err != nil {
+		h.Log.Error("get my participated routes", slog.Any("error", err))
+		http.Error(w, "failed to get routes", http.StatusInternalServerError)
+		return
+	}
+
+	if routes == nil {
+		routes = []route.Route{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(routes)
+}

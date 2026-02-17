@@ -52,6 +52,7 @@ type ServerConfig struct {
 	TLSCertFile       string
 	TLSKeyFile        string
 	TrustedProxyCIDRs string
+	CORSOrigins       string // Comma-separated origins for CORS (e.g. http://localhost:3000). Empty = no CORS.
 }
 
 // Validate checks required settings. Call after Load() when the server needs DB or OAuth.
@@ -89,6 +90,7 @@ func Load() *Config {
 			TLSCertFile:       getEnv("TLS_CERT_FILE", ""),
 			TLSKeyFile:        getEnv("TLS_KEY_FILE", ""),
 			TrustedProxyCIDRs: getEnv("TRUSTED_PROXY_CIDRS", "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7"),
+			CORSOrigins:       getEnv("CORS_ORIGINS", "http://localhost:3000"),
 		},
 		MySQL: MySQLConfig{
 			RawDSN:             getEnv("MYSQL_DSN", ""),

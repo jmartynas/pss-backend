@@ -34,6 +34,8 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 
 	if cfg.OAuth.BaseURL != "" && cfg.OAuth.JWTSecret != "" && len(cfg.OAuth.Providers) > 0 {
 		mux.Handle("POST /routes", middleware.Authorize(db, cfg.OAuth.JWTSecret, log)(http.HandlerFunc(routesH.CreateRoute)))
+		mux.Handle("GET /routes/my", middleware.Authorize(db, cfg.OAuth.JWTSecret, log)(http.HandlerFunc(routesH.GetMyRoutes)))
+		mux.Handle("GET /routes/participated", middleware.Authorize(db, cfg.OAuth.JWTSecret, log)(http.HandlerFunc(routesH.GetMyParticipatedRoutes)))
 		secure := cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != ""
 		authH := &handlers.AuthHandler{
 			BaseURL:    cfg.OAuth.BaseURL,
@@ -58,6 +60,9 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 	}
 
 	h := middleware.NoCache(mux)
+	if cfg.Server.CORSOrigins != "" {
+		h = middleware.CORS(cfg.Server.CORSOrigins)(h)
+	}
 	h = middleware.Recoverer(log)(h)
 	h = middleware.Logger(log)(h)
 	h = middleware.RequestID(h)
