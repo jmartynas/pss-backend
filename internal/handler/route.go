@@ -189,6 +189,79 @@ func (h *RouteHandler) GetMyParticipatedRoutes(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, routes)
 }
 
+func (h *RouteHandler) GetMyReviews(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r.Context())
+	if u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	routeID, ok := parseUUIDPath(w, r, "id")
+	if !ok {
+		return
+	}
+	reviews, err := h.svc.GetMyReviewsForRoute(r.Context(), routeID, u.ID)
+	if err != nil {
+		h.log.Error("get my reviews for route", slog.Any("error", err))
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Return only the target_user_ids so the frontend knows which users are already reviewed.
+	type item struct {
+		TargetUserID string `json:"target_user_id"`
+	}
+	out := make([]item, len(reviews))
+	for i, rv := range reviews {
+		out[i] = item{TargetUserID: rv.TargetID.String()}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *RouteHandler) CreateReview(w http.ResponseWriter, r *http.Request) {
+	u := middleware.GetUser(r.Context())
+	if u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	routeID, ok := parseUUIDPath(w, r, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		TargetUserID string `json:"target_user_id"`
+		Rating       int    `json:"rating"`
+		Comment      string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	targetID, err := uuid.Parse(in.TargetUserID)
+	if err != nil {
+		http.Error(w, "invalid target_user_id", http.StatusBadRequest)
+		return
+	}
+	id, err := h.svc.CreateReview(r.Context(), routeID, u.ID, in.Rating, in.Comment, targetID)
+	if err != nil {
+		switch {
+		case errors.Is(err, errs.ErrNotFound):
+			http.Error(w, "route not found", http.StatusNotFound)
+		case errors.Is(err, errs.ErrRouteNotFinished):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "route has not started yet"})
+		case errors.Is(err, errs.ErrNotParticipant):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "not a participant of this route"})
+		case errors.Is(err, errs.ErrAlreadyReviewed):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "you have already reviewed this user for this route"})
+		case errors.Is(err, errs.ErrForbidden):
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		default:
+			h.log.Error("create review", slog.Any("error", err))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"id": id.String()})
+}
+
 func parseRouteFilter(r *http.Request) domain.RouteFilter {
 	switch r.URL.Query().Get("filter") {
 	case "active":

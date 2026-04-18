@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { getUserProfile } from '../api/auth'
 import type { UserProfile } from '../types'
 
 function StarRating({ rating }: { rating: number }) {
   return (
-    <span className="text-sm text-gray-700">
-      {rating}/5
+    <span className="text-sm tracking-tight" aria-label={`${rating} iš 5`}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <span key={i} className={i < rating ? 'text-yellow-400' : 'text-gray-300'}>★</span>
+      ))}
     </span>
   )
 }
@@ -51,10 +53,10 @@ export default function UserProfilePage() {
           </span>
         )}
         {avgRating && (
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-1.5">
             <StarRating rating={Math.round(Number(avgRating))} />
             <span className="text-sm text-gray-500">
-              {avgRating} · {profile.reviews.length} {profile.reviews.length !== 1 ? 'atsiliepimai' : 'atsiliepimas'}
+              {avgRating} · {profile.reviews.length} {profile.reviews.length === 1 ? 'atsiliepimas' : 'atsiliepimai'}
             </span>
           </div>
         )}
@@ -70,8 +72,11 @@ export default function UserProfilePage() {
             {profile.reviews.map((rv) => (
               <li key={rv.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-800">{rv.author_name}</span>
-                  <StarRating rating={rv.rating} />
+                  <Link to={`/users/${rv.author_id}`} className="text-sm font-medium text-gray-800 hover:text-indigo-600 hover:underline">{rv.author_name}</Link>
+                  <span className="flex items-center gap-1">
+                    <StarRating rating={rv.rating} />
+                    <span className="text-xs text-gray-400">{rv.rating}/5</span>
+                  </span>
                 </div>
                 {rv.comment && <p className="text-sm text-gray-600">{rv.comment}</p>}
                 <p className="text-xs text-gray-400 mt-1">{new Date(rv.created_at).toLocaleDateString('lt-LT')}</p>

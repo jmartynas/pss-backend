@@ -21,6 +21,7 @@ type Config struct {
 	Server   ServerConfig
 	MySQL    MySQLConfig
 	OAuth    OAuthConfig
+	NatsURL  string
 	LogLevel string
 }
 
@@ -102,6 +103,7 @@ func Load() *Config {
 			ConnMaxLifetimeSec: getEnvInt("MYSQL_CONN_MAX_LIFETIME_SEC", 300),
 		},
 		OAuth:    loadOAuthConfig(),
+		NatsURL:  getEnv("NATS_URL", "nats://localhost:4222"),
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 	}
 }

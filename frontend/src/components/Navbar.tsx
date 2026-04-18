@@ -14,12 +14,13 @@ export default function Navbar() {
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-        <Link to="/" className="text-xl font-bold text-indigo-600">
-          Pakeleivių paieškos sistema
+      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14 gap-4 overflow-x-auto">
+        <Link to="/" className="text-xl font-bold text-indigo-600 shrink-0">
+          <span className="hidden lg:inline">Pakeleivių paieškos sistema</span>
+          <span className="lg:hidden">PSS</span>
         </Link>
 
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-2 lg:gap-4 text-sm shrink-0">
           <NavLink
             to="/"
             end
@@ -55,6 +56,14 @@ export default function Navbar() {
                 }
               >
                 Mano kelionės
+              </NavLink>
+              <NavLink
+                to="/chats"
+                className={({ isActive }) =>
+                  isActive ? 'text-indigo-600 font-medium' : 'text-gray-600 hover:text-gray-900'
+                }
+              >
+                Pokalbiai
               </NavLink>
               <NavLink
                 to="/profile"

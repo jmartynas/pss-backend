@@ -11,6 +11,7 @@ import ProfilePage from './pages/ProfilePage'
 import UserProfilePage from './pages/UserProfilePage'
 import VehicleCreatePage from './pages/VehicleCreatePage'
 import VehicleEditPage from './pages/VehicleEditPage'
+import ChatsPage from './pages/ChatsPage'
 import type { ReactNode } from 'react'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -52,6 +53,10 @@ function AppRoutes() {
         <Route
           path="/vehicles/:id/edit"
           element={<RequireAuth><VehicleEditPage /></RequireAuth>}
+        />
+        <Route
+          path="/chats"
+          element={<RequireAuth><ChatsPage /></RequireAuth>}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

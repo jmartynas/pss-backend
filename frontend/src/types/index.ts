@@ -11,6 +11,7 @@ export interface Stop {
 export interface Participant {
   user_id: string
   name: string
+  status: string
 }
 
 export interface Route {
@@ -146,6 +147,34 @@ export interface UpdateRouteInput {
   end_place_id?: string
   end_formatted_address?: string
   stops?: Array<{ lat: number; lng: number; place_id?: string; formatted_address?: string }>
+}
+
+export interface PrivateChat {
+  ID: string
+  OtherUserID: string
+  OtherName: string
+  RouteID: string
+  CreatedAt: string
+}
+
+export interface GroupChat {
+  RouteID: string
+  RouteName: string
+  CreatedAt: string
+}
+
+export interface ChatMessage {
+  ID: string
+  SenderUserID: string
+  SenderName: string
+  Message: string
+  CreatedAt: string
+}
+
+export interface CreateReviewInput {
+  target_user_id: string
+  rating: number
+  comment?: string
 }
 
 export interface ApplyInput {

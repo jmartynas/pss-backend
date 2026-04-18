@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(docker --context default info --format '{{.ServerVersion}}')",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(grep -E \"\\\\.tsx?$\")",
+      "Bash(docker compose *)",
+      "Bash(go get *)",
+      "Bash(go test *)"
     ]
   }
 }

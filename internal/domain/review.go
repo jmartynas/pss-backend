@@ -25,9 +25,21 @@ type ReviewSummary struct {
 	Count int
 }
 
+// CreateReviewInput carries the data for a new review.
+type CreateReviewInput struct {
+	AuthorID uuid.UUID
+	TargetID uuid.UUID
+	RouteID  uuid.UUID
+	Rating   int
+	Comment  string
+}
+
 // ReviewRepository is the persistence contract for reviews.
 type ReviewRepository interface {
+	Create(ctx context.Context, in CreateReviewInput) (uuid.UUID, error)
 	GetByTargetUser(ctx context.Context, userID uuid.UUID) ([]Review, error)
+	// GetByAuthorAndRoute returns all reviews written by authorID for routeID.
+	GetByAuthorAndRoute(ctx context.Context, authorID, routeID uuid.UUID) ([]Review, error)
 	// GetAverageRatings returns a rating summary keyed by user ID for each
 	// requested user that has at least one review.
 	GetAverageRatings(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]ReviewSummary, error)

@@ -1,7 +1,11 @@
 package middleware
 
 import (
+	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +52,103 @@ func TestParseTrustedProxyCIDRs_contains(t *testing.T) {
 	}
 	if !nets[0].Contains(ip) {
 		t.Error("expected 127.0.0.1 to be contained in 127.0.0.0/8")
+	}
+}
+
+func TestRequestID_Generated(t *testing.T) {
+	var capturedID string
+	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedID = GetRequestID(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if capturedID == "" {
+		t.Error("expected request ID to be generated")
+	}
+}
+
+func TestRequestID_Propagated(t *testing.T) {
+	var capturedID string
+	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedID = GetRequestID(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "existing-id")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if capturedID != "existing-id" {
+		t.Errorf("GetRequestID() = %q, want %q", capturedID, "existing-id")
+	}
+	if w.Header().Get("X-Request-ID") != "existing-id" {
+		t.Errorf("response X-Request-ID = %q, want %q", w.Header().Get("X-Request-ID"), "existing-id")
+	}
+}
+
+func TestGetRequestID_Empty(t *testing.T) {
+	if got := GetRequestID(context.Background()); got != "" {
+		t.Errorf("GetRequestID(empty ctx) = %q, want empty", got)
+	}
+}
+
+func TestGetRealIP_Empty(t *testing.T) {
+	if got := GetRealIP(context.Background()); got != "" {
+		t.Errorf("GetRealIP(empty ctx) = %q, want empty", got)
+	}
+}
+
+func TestRealIPWith_TrustedProxy_XRealIP(t *testing.T) {
+	nets, _ := ParseTrustedProxyCIDRs("127.0.0.0/8")
+	var capturedIP string
+	handler := RealIPWith(nets)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedIP = GetRealIP(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Real-IP", "203.0.113.5")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if capturedIP != "203.0.113.5" {
+		t.Errorf("GetRealIP() = %q, want %q", capturedIP, "203.0.113.5")
+	}
+}
+
+func TestRealIPWith_TrustedProxy_XForwardedFor(t *testing.T) {
+	nets, _ := ParseTrustedProxyCIDRs("127.0.0.0/8")
+	var capturedIP string
+	handler := RealIPWith(nets)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedIP = GetRealIP(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if capturedIP != "203.0.113.5" {
+		t.Errorf("GetRealIP() = %q, want %q", capturedIP, "203.0.113.5")
+	}
+}
+
+func TestRealIPWith_UntrustedProxy(t *testing.T) {
+	nets, _ := ParseTrustedProxyCIDRs("10.0.0.0/8")
+	var capturedIP string
+	handler := RealIPWith(nets)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedIP = GetRealIP(r.Context())
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.1:1234"
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	if capturedIP != "203.0.113.1" {
+		t.Errorf("GetRealIP() = %q, want %q", capturedIP, "203.0.113.1")
+	}
+}
+
+func TestNoCache_Headers(t *testing.T) {
+	handler := NoCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if w.Header().Get("Pragma") != "no-cache" {
+		t.Errorf("Pragma = %q, want no-cache", w.Header().Get("Pragma"))
 	}
 }

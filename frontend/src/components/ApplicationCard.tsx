@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { Application } from '../types'
 
 const statusColors: Record<string, string> = {
@@ -35,7 +36,7 @@ export default function ApplicationCard({
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <div className="font-medium text-gray-800">{app.user_name}</div>
+          <Link to={`/users/${app.user_id}`} className="font-medium text-gray-800 hover:text-indigo-600 hover:underline">{app.user_name}</Link>
           {app.comment && (
             <p className="text-sm text-gray-500 mt-0.5">{app.comment}</p>
           )}

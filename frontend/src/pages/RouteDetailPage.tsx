@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, Link } from 'react-router-dom'
 import type { PlaceResult } from '../components/PlaceInput'
 import PlaceInput from '../components/PlaceInput'
 import { getRoute, updateRoute } from '../api/routes'
@@ -14,6 +14,7 @@ import {
   reviewStopChange,
   cancelStopChange,
 } from '../api/applications'
+import { createReview, getMyReviewsForRoute } from '../api/reviews'
 import type { Route, Application } from '../types'
 import ApplicationCard from '../components/ApplicationCard'
 import RouteMap, { type StopEntry } from '../components/RouteMap'
@@ -70,6 +71,11 @@ export default function RouteDetailPage() {
   const [editingApplication, setEditingApplication] = useState(false)
   const [editAppAllStops, setEditAppAllStops] = useState<StopEntry[]>([])
   const [editAppComment, setEditAppComment] = useState('')
+
+  // review state: maps targetUserID → { rating, comment }
+  const [reviewForms, setReviewForms] = useState<Record<string, { rating: number; comment: string }>>({})
+  // tracks which targetUserIDs have been successfully submitted
+  const [submittedReviews, setSubmittedReviews] = useState<Set<string>>(new Set())
 
   const [editingRoute, setEditingRoute] = useState(false)
   const [editForm, setEditForm] = useState<{ description: string; max_passengers?: number; max_deviation?: number; price?: number; leaving_at: string }>({
@@ -207,6 +213,20 @@ const isCreator = user && route && user.id === route.creator_id
       .then(setApplications)
       .catch(() => {})
   }, [id, canViewApplications])
+
+  // Pre-populate already-submitted reviews so the form doesn't show twice
+  useEffect(() => {
+    if (!id || !user || !route) return
+    const hasStarted = !!route.leaving_at && new Date(route.leaving_at) <= new Date()
+    if (!hasStarted) return
+    getMyReviewsForRoute(id)
+      .then(existing => {
+        if (existing.length > 0) {
+          setSubmittedReviews(new Set(existing.map(r => r.target_user_id)))
+        }
+      })
+      .catch(() => {})
+  }, [id, user, route])
 
   const handleApply = async () => {
     if (!id) return
@@ -370,6 +390,21 @@ const handleCancelMyApplication = async () => {
   }
 
 
+  const handleSubmitReview = async (targetUserID: string) => {
+    if (!id) return
+    const form = reviewForms[targetUserID]
+    if (!form || form.rating < 1) return
+    setActionLoading(true)
+    try {
+      await createReview(id, { target_user_id: targetUserID, rating: form.rating, comment: form.comment || undefined })
+      setSubmittedReviews(prev => new Set(prev).add(targetUserID))
+    } catch (e) {
+      alert(e instanceof ApiError ? e.message : 'Nepavyko išsaugoti įvertinimo')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   if (loadingRoute) {
     return <div className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-400">Kraunama…</div>
   }
@@ -403,7 +438,8 @@ const handleCancelMyApplication = async () => {
               <span>{to}</span>
             </div>
             <div className="text-sm text-gray-500 mt-1">
-              {fmt(route.leaving_at)} · Vairuotojas: {route.creator_name}
+              {fmt(route.leaving_at)} · Vairuotojas:{' '}
+            <Link to={`/users/${route.creator_id}`} className="hover:text-indigo-600 hover:underline" onClick={e => e.stopPropagation()}>{route.creator_name}</Link>
             </div>
             {route.description && (
               <p className="text-sm text-gray-600 mt-2">{route.description}</p>
@@ -540,9 +576,9 @@ const handleCancelMyApplication = async () => {
             <div className="text-xs font-medium text-gray-500 mb-2">Keleiviai</div>
             <div className="flex flex-wrap gap-2">
               {route.participants.map((p) => (
-                <span key={p.user_id} className="text-sm bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">
+                <Link key={p.user_id} to={`/users/${p.user_id}`} className="text-sm bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full hover:bg-indigo-100">
                   {p.name}
-                </span>
+                </Link>
               ))}
             </div>
           </div>
@@ -735,6 +771,69 @@ const handleCancelMyApplication = async () => {
           )}
         </div>
       )}
+
+      {/* ── Reviews (past routes, participants only) ──────────────────────── */}
+      {hasStarted && user && (() => {
+        const reviewTargets = route.participants.filter(
+          p => p.user_id !== user.id && (p.status === 'driver' || p.status === 'approved')
+        )
+        const iAmParticipant = route.participants.some(
+          p => p.user_id === user.id && (p.status === 'driver' || p.status === 'approved')
+        )
+        if (!iAmParticipant || reviewTargets.length === 0) return null
+        return (
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Įvertinkite dalyvius</h3>
+            <div className="flex flex-col gap-5">
+              {reviewTargets.map(p => {
+                const submitted = submittedReviews.has(p.user_id)
+                const form = reviewForms[p.user_id] ?? { rating: 0, comment: '' }
+                return (
+                  <div key={p.user_id} className="border border-gray-100 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <Link to={`/users/${p.user_id}`} className="font-medium text-gray-800 hover:text-indigo-600 hover:underline">{p.name}</Link>
+                      {p.status === 'driver' && (
+                        <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">Vairuotojas</span>
+                      )}
+                    </div>
+                    {submitted ? (
+                      <p className="text-sm text-green-600 font-medium">Įvertinimas pateiktas</p>
+                    ) : (
+                      <>
+                        <div className="flex gap-1 mb-3">
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                              key={star}
+                              onClick={() => setReviewForms(prev => ({ ...prev, [p.user_id]: { ...form, rating: star } }))}
+                              className={`text-2xl leading-none transition-colors ${star <= form.rating ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-300'}`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-3"
+                          rows={2}
+                          placeholder="Komentaras (neprivaloma)"
+                          value={form.comment}
+                          onChange={e => setReviewForms(prev => ({ ...prev, [p.user_id]: { ...form, comment: e.target.value } }))}
+                        />
+                        <button
+                          onClick={() => handleSubmitReview(p.user_id)}
+                          disabled={actionLoading || form.rating < 1}
+                          className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {actionLoading ? 'Siunčiama…' : 'Pateikti įvertinimą'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Applications (creator + approved participants) ────────────────── */}
       {canViewApplications && (

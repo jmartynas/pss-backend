@@ -1,0 +1,11 @@
+# Squash all commits into one
+git reset $(git rev-list --max-parents=0 HEAD)
+
+# Stage everything
+git add -A
+
+# Create single commit
+git commit -m "init"
+
+# Force push
+git push origin master --force

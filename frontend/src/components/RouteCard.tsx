@@ -40,7 +40,7 @@ export default function RouteCard({ route, showBadge, linkState }: RouteCardProp
           <div className="text-sm text-gray-500 mt-1 flex items-center gap-1.5 flex-wrap">
             <span>{formatDate(route.leaving_at)}</span>
             <span className="text-gray-400">·</span>
-            <span className="text-gray-700">{route.creator_name}</span>
+            <Link to={`/users/${route.creator_id}`} className="text-gray-700 hover:text-indigo-600 hover:underline" onClick={e => e.stopPropagation()}>{route.creator_name}</Link>
             {route.creator_rating != null && (
               <span className="flex items-center gap-0.5 text-gray-600 text-xs font-medium">
                 <span>{route.creator_rating.toFixed(1)}/5</span>

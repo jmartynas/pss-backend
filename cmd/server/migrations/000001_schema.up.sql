@@ -13,11 +13,13 @@ CREATE TABLE users (
 
 -- ── Admins ────────────────────────────────────────────────────────────────────
 CREATE TABLE admins (
-  id         CHAR(36)         NOT NULL PRIMARY KEY,
-  email      VARCHAR(255)     NOT NULL,
-  password   VARCHAR(255)     NOT NULL,
-  status     TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  created_at TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id          CHAR(36)         NOT NULL PRIMARY KEY,
+  email       VARCHAR(255)     NOT NULL,
+  password    VARCHAR(255)     NOT NULL,
+  status      TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  permissions TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at  TIMESTAMP        NULL DEFAULT NULL,
   UNIQUE KEY admins_email_unique (email)
 );
 
@@ -186,11 +188,12 @@ CREATE TABLE private_messages (
 
 -- ── Email logs ────────────────────────────────────────────────────────────────
 CREATE TABLE email_logs (
-  id         CHAR(36)         NOT NULL PRIMARY KEY,
-  user_id    CHAR(36)         DEFAULT NULL,
-  status     TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  type       TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  created_at TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY email_logs_user_id (user_id),
-  CONSTRAINT email_logs_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+  id         CHAR(36)    NOT NULL PRIMARY KEY,
+  request_id CHAR(36)    DEFAULT NULL,
+  status     VARCHAR(64) NOT NULL DEFAULT 'created',
+  type       VARCHAR(64) NOT NULL DEFAULT '',
+  sent_at    TIMESTAMP   NULL DEFAULT NULL,
+  created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY email_logs_request_id (request_id),
+  CONSTRAINT email_logs_request_fk FOREIGN KEY (request_id) REFERENCES requests (id) ON DELETE SET NULL
 );

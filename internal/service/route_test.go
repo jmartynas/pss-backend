@@ -4,9 +4,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/jmartynas/pss-backend/internal/domain"
 )
+
+func strPtr(s string) *string { return &s }
 
 func TestHaversine(t *testing.T) {
 	tests := []struct {
@@ -28,114 +29,6 @@ func TestHaversine(t *testing.T) {
 			got := Haversine(tt.lat1, tt.lng1, tt.lat2, tt.lng2)
 			if math.Abs(got-tt.want) > tt.tolerance {
 				t.Errorf("Haversine() = %v, want %v (tolerance: %v)", got, tt.want, tt.tolerance)
-			}
-		})
-	}
-}
-
-func TestGroupStopsByParticipant(t *testing.T) {
-	appID1 := uuid.New()
-	appID2 := uuid.New()
-
-	tests := []struct {
-		name  string
-		stops []domain.Stop
-		want  int
-	}{
-		{"empty stops", []domain.Stop{}, 0},
-		{
-			"single creator stop",
-			[]domain.Stop{{ID: uuid.New(), ApplicationID: nil, Position: 0}},
-			1,
-		},
-		{
-			"multiple creator stops",
-			[]domain.Stop{
-				{ID: uuid.New(), ApplicationID: nil, Position: 0},
-				{ID: uuid.New(), ApplicationID: nil, Position: 1},
-			},
-			1,
-		},
-		{
-			"creator and application stops",
-			[]domain.Stop{
-				{ID: uuid.New(), ApplicationID: nil, Position: 0},
-				{ID: uuid.New(), ApplicationID: &appID1, Position: 1},
-				{ID: uuid.New(), ApplicationID: &appID1, Position: 2},
-				{ID: uuid.New(), ApplicationID: &appID2, Position: 3},
-			},
-			3,
-		},
-		{
-			"multiple applications",
-			[]domain.Stop{
-				{ID: uuid.New(), ApplicationID: &appID1, Position: 0},
-				{ID: uuid.New(), ApplicationID: &appID2, Position: 1},
-				{ID: uuid.New(), ApplicationID: &appID1, Position: 2},
-			},
-			2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := groupStopsByParticipant(tt.stops)
-			if len(got) != tt.want {
-				t.Errorf("groupStopsByParticipant() returned %d groups, want %d", len(got), tt.want)
-			}
-			total := 0
-			for _, g := range got {
-				total += len(g)
-			}
-			if total != len(tt.stops) {
-				t.Errorf("groupStopsByParticipant() total stops = %d, want %d", total, len(tt.stops))
-			}
-		})
-	}
-}
-
-func TestAllInterleavings(t *testing.T) {
-	appID1 := uuid.New()
-
-	tests := []struct {
-		name   string
-		groups [][]domain.Stop
-		max    int
-		want   int
-	}{
-		{"empty groups", [][]domain.Stop{}, 10, 0},
-		{
-			"single group",
-			[][]domain.Stop{{{ID: uuid.New(), Position: 0}, {ID: uuid.New(), Position: 1}}},
-			10, 1,
-		},
-		{
-			"two groups",
-			[][]domain.Stop{
-				{{ID: uuid.New(), ApplicationID: nil, Position: 0}},
-				{{ID: uuid.New(), ApplicationID: &appID1, Position: 1}},
-			},
-			10, 2,
-		},
-		{
-			"respects max limit",
-			[][]domain.Stop{
-				{{ID: uuid.New(), Position: 0}},
-				{{ID: uuid.New(), Position: 1}},
-				{{ID: uuid.New(), Position: 2}},
-			},
-			2, 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := allInterleavings(tt.groups, tt.max)
-			if len(got) < tt.want {
-				t.Errorf("allInterleavings() returned %d, want at least %d", len(got), tt.want)
-			}
-			if len(got) > tt.max {
-				t.Errorf("allInterleavings() returned %d, exceeded max %d", len(got), tt.max)
 			}
 		})
 	}
@@ -166,17 +59,18 @@ func TestBuildSegmentsFromStops(t *testing.T) {
 }
 
 func TestMinDistanceToSegment(t *testing.T) {
-	segments := [][2]float64{{0, 0}, {1, 1}, {2, 2}}
+	// Segment along the equator from (0,0) to (0,1).
+	segments := []routeSegment{{0, 0, 0, 1}}
 	tests := []struct {
 		name      string
 		lat, lng  float64
-		segs      [][2]float64
+		segs      []routeSegment
 		want      float64
 		tolerance float64
 	}{
-		{"point on segment", 1, 1, segments, 0, 0.1},
-		{"point near segment", 1.1, 1.1, segments, 15.7, 5.0},
-		{"empty segments", 1, 1, [][2]float64{}, math.MaxFloat64, 0},
+		{"point on segment", 0, 0.5, segments, 0, 0.1},
+		{"point off segment", 1, 0.5, segments, 111.2, 5.0},
+		{"empty segments", 1, 1, []routeSegment{}, math.MaxFloat64, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -205,18 +99,25 @@ func TestDeviationForStops(t *testing.T) {
 		tolerance float64
 	}{
 		{
-			name: "no search stops",
+			name:   "no search stops",
 			endLat: 1, endLng: 1,
 			stops:  []domain.Stop{},
 			search: domain.SearchRouteInput{Stops: []domain.SearchStop{}},
 			want: 0, tolerance: 0.001,
 		},
 		{
-			name:   "search stop on route",
+			name:   "search stop exactly on route stop",
 			endLat: 2, endLng: 2,
 			stops:  []domain.Stop{{Lat: 1, Lng: 1}},
 			search: domain.SearchRouteInput{Stops: []domain.SearchStop{{Lat: 1, Lng: 1}}},
-			want: 78.6, tolerance: 5.0,
+			want: 0, tolerance: 0.1,
+		},
+		{
+			name:   "search stop off route",
+			endLat: 0, endLng: 1,
+			stops:  []domain.Stop{},
+			search: domain.SearchRouteInput{Stops: []domain.SearchStop{{Lat: 1, Lng: 0.5}}},
+			want: 111.2, tolerance: 5.0,
 		},
 	}
 	for _, tt := range tests {
@@ -230,7 +131,7 @@ func TestDeviationForStops(t *testing.T) {
 }
 
 func TestCalculateDeviation(t *testing.T) {
-	appID1 := uuid.New()
+	pid := strPtr("participant-1")
 
 	tests := []struct {
 		name      string
@@ -252,18 +153,18 @@ func TestCalculateDeviation(t *testing.T) {
 			want: 31.4, tolerance: 5.0,
 		},
 		{
-			name:   "route with stops, search with stops",
+			name:   "route with stops, search stop on route stop",
 			route:  &domain.Route{EndLat: 2, EndLng: 2, Stops: []domain.Stop{{Lat: 1, Lng: 1}}},
 			search: domain.SearchRouteInput{EndLat: 2, EndLng: 2, Stops: []domain.SearchStop{{Lat: 1, Lng: 1}}},
-			want: 78.6, tolerance: 5.0,
+			want: 0, tolerance: 0.1,
 		},
 		{
 			name: "route with participant stops",
 			route: &domain.Route{
 				EndLat: 3, EndLng: 3,
 				Stops: []domain.Stop{
-					{Lat: 1, Lng: 1, ApplicationID: &appID1, Position: 0},
-					{Lat: 2, Lng: 2, ApplicationID: &appID1, Position: 1},
+					{Lat: 1, Lng: 1, ParticipantID: pid, Position: 0},
+					{Lat: 2, Lng: 2, ParticipantID: pid, Position: 1},
 				},
 			},
 			search: domain.SearchRouteInput{
@@ -282,30 +183,6 @@ func TestCalculateDeviation(t *testing.T) {
 			}
 			if math.Abs(got-tt.want) > tt.tolerance {
 				t.Errorf("calculateDeviation() = %v, want %v (tolerance %v)", got, tt.want, tt.tolerance)
-			}
-		})
-	}
-}
-
-func TestTotalLen(t *testing.T) {
-	tests := []struct {
-		name   string
-		groups [][]domain.Stop
-		want   int
-	}{
-		{"empty", [][]domain.Stop{}, 0},
-		{"single group", [][]domain.Stop{{{ID: uuid.New()}, {ID: uuid.New()}}}, 2},
-		{
-			"multiple groups",
-			[][]domain.Stop{{{ID: uuid.New()}}, {{ID: uuid.New()}, {ID: uuid.New()}}, {{ID: uuid.New()}}},
-			4,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := totalLen(tt.groups)
-			if got != tt.want {
-				t.Errorf("totalLen() = %v, want %v", got, tt.want)
 			}
 		})
 	}

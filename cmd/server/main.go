@@ -13,6 +13,7 @@ import (
 	"github.com/jmartynas/pss-backend/internal/database"
 	"github.com/jmartynas/pss-backend/internal/migrations"
 	"github.com/jmartynas/pss-backend/internal/server"
+	"github.com/nats-io/nats.go"
 )
 
 //go:embed migrations
@@ -39,7 +40,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := server.New(cfg, log, db)
+	nc, err := nats.Connect(cfg.NatsURL,
+		nats.Name("pss-backend"),
+		nats.MaxReconnects(-1),
+		nats.RetryOnFailedConnect(true),
+	)
+	if err != nil {
+		log.Error("nats connection failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer nc.Drain()
+	log.Info("nats connected", slog.String("url", cfg.NatsURL))
+
+	srv := server.New(cfg, log, db, nc)
 
 	go func() {
 		if err := srv.Start(); err != nil && err != context.Canceled {

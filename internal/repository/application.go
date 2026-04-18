@@ -11,13 +11,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmartynas/pss-backend/internal/domain"
 	"github.com/jmartynas/pss-backend/internal/errs"
+	"github.com/nats-io/nats.go"
 )
 
-type applicationRepository struct{ db *sql.DB }
+type applicationRepository struct {
+	db *sql.DB
+	nc *nats.Conn
+}
 
 // NewApplicationRepository returns a domain.ApplicationRepository backed by MySQL.
-func NewApplicationRepository(db *sql.DB) domain.ApplicationRepository {
-	return &applicationRepository{db: db}
+func NewApplicationRepository(db *sql.DB, nc *nats.Conn) domain.ApplicationRepository {
+	return &applicationRepository{db: db, nc: nc}
 }
 
 // Create inserts a participant row (status='pending'), a request row, and its request_stops,
@@ -59,6 +63,22 @@ func (r *applicationRepository) Create(ctx context.Context, userID, routeID uuid
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("application create stop %d: %w", i, err)
 		}
+	}
+
+	// Create the private chat between the driver and this applicant on application submit.
+	var driverParticipantID string
+	err = sq.Select("id").From("participants").
+		Where(sq.Eq{"route_id": routeID.String(), "status": "driver", "deleted_at": nil}).
+		RunWith(tx).QueryRowContext(ctx).Scan(&driverParticipantID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("application create: find driver participant: %w", err)
+	}
+	_, err = sq.Insert("private_chats").
+		Columns("id", "user1_id", "user2_id").
+		Values(uuid.New().String(), driverParticipantID, participantID.String()).
+		RunWith(tx).ExecContext(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("application create: create private chat: %w", err)
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -253,6 +273,30 @@ func (r *applicationRepository) ReviewUpdate(ctx context.Context, id uuid.UUID, 
 				return fmt.Errorf("application review: insert route stop %d: %w", i, err)
 			}
 		}
+	}
+
+	// Email log for approved application.
+	if status == "approved" {
+		var requestID string
+		err := sq.Select("id").From("requests").
+			Where(sq.Eq{"participant_id": id.String()}).
+			RunWith(tx).QueryRowContext(ctx).Scan(&requestID)
+		if err != nil {
+			return fmt.Errorf("application review: find request for email log: %w", err)
+		}
+		emailLogID := uuid.New().String()
+		_, err = sq.Insert("email_logs").
+			Columns("id", "request_id", "type", "status").
+			Values(emailLogID, requestID, "application_approved", "created").
+			RunWith(tx).ExecContext(ctx)
+		if err != nil {
+			return fmt.Errorf("application review: insert email_log: %w", err)
+		}
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("application review: commit: %w", err)
+		}
+		publishEmailLog(r.nc, emailLogID, "application_approved")
+		return nil
 	}
 
 	return tx.Commit()
@@ -514,6 +558,29 @@ func (r *applicationRepository) ReviewStopChange(ctx context.Context, id uuid.UU
 		RunWith(tx).ExecContext(ctx)
 	if err != nil {
 		return fmt.Errorf("review stop change: clear flag: %w", err)
+	}
+
+	if approve {
+		var requestID string
+		err = sq.Select("id").From("requests").
+			Where(sq.Eq{"participant_id": id.String()}).
+			RunWith(tx).QueryRowContext(ctx).Scan(&requestID)
+		if err != nil {
+			return fmt.Errorf("review stop change: find request for email log: %w", err)
+		}
+		emailLogID := uuid.New().String()
+		_, err = sq.Insert("email_logs").
+			Columns("id", "request_id", "type", "status").
+			Values(emailLogID, requestID, "stop_change_approved", "created").
+			RunWith(tx).ExecContext(ctx)
+		if err != nil {
+			return fmt.Errorf("review stop change: insert email_log: %w", err)
+		}
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("review stop change: commit: %w", err)
+		}
+		publishEmailLog(r.nc, emailLogID, "stop_change_approved")
+		return nil
 	}
 
 	return tx.Commit()

@@ -11,13 +11,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmartynas/pss-backend/internal/domain"
 	"github.com/jmartynas/pss-backend/internal/errs"
+	"github.com/nats-io/nats.go"
 )
 
-type routeRepository struct{ db *sql.DB }
+type routeRepository struct {
+	db *sql.DB
+	nc *nats.Conn
+}
 
 // NewRouteRepository returns a domain.RouteRepository backed by MySQL.
-func NewRouteRepository(db *sql.DB) domain.RouteRepository {
-	return &routeRepository{db: db}
+func NewRouteRepository(db *sql.DB, nc *nats.Conn) domain.RouteRepository {
+	return &routeRepository{db: db, nc: nc}
 }
 
 // routeColumns are the SELECT columns used by all route queries.
@@ -226,7 +230,35 @@ func (r *routeRepository) Update(ctx context.Context, id, creatorID uuid.UUID, i
 		}
 	}
 
-	return tx.Commit()
+	// Find driver participant and create a request + email_log for this update.
+	var driverParticipantID string
+	err = sq.Select("id").From("participants").
+		Where(sq.Eq{"route_id": id.String(), "status": "driver", "deleted_at": nil}).
+		RunWith(tx).QueryRowContext(ctx).Scan(&driverParticipantID)
+	if err != nil {
+		return fmt.Errorf("route update: find driver participant: %w", err)
+	}
+	requestID := uuid.New().String()
+	_, err = sq.Insert("requests").
+		Columns("id", "participant_id").
+		Values(requestID, driverParticipantID).
+		RunWith(tx).ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("route update: insert request: %w", err)
+	}
+	emailLogID := uuid.New().String()
+	_, err = sq.Insert("email_logs").
+		Columns("id", "request_id", "type", "status").
+		Values(emailLogID, requestID, "route_updated", "created").
+		RunWith(tx).ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("route update: insert email_log: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("route update: commit: %w", err)
+	}
+	publishEmailLog(r.nc, emailLogID, "route_updated")
+	return nil
 }
 
 func (r *routeRepository) Delete(ctx context.Context, id, creatorID uuid.UUID) error {
@@ -244,14 +276,128 @@ func (r *routeRepository) Delete(ctx context.Context, id, creatorID uuid.UUID) e
 	if ownerIDStr != creatorID.String() {
 		return errs.ErrForbidden
 	}
-	_, err = sq.Update("routes").
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("route delete: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err = sq.Update("routes").
 		Set("deleted_at", sq.Expr("NOW()")).
 		Where(sq.Eq{"id": id.String()}).
-		RunWith(r.db).ExecContext(ctx)
+		RunWith(tx).ExecContext(ctx); err != nil {
+		return fmt.Errorf("route delete: %w", err)
+	}
+
+	emailLogID, err := cancelRouteCleanup(ctx, tx, id.String())
 	if err != nil {
 		return fmt.Errorf("route delete: %w", err)
 	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("route delete: commit: %w", err)
+	}
+	publishEmailLog(r.nc, emailLogID, "route_cancelled")
 	return nil
+}
+
+// cancelRouteCleanup deletes all related data for a soft-deleted route within an existing
+// transaction and returns the email_log ID for NATS notification.
+func cancelRouteCleanup(ctx context.Context, tx *sql.Tx, routeID string) (string, error) {
+	// Collect all participant IDs + driver/passenger user IDs.
+	pRows, err := sq.Select("id", "user_id", "status").
+		From("participants").
+		Where(sq.Eq{"route_id": routeID}).
+		RunWith(tx).QueryContext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("fetch participants: %w", err)
+	}
+	var allParticipantIDs []string
+	var driverParticipantID, driverUserID string
+	var passengerUserIDs []string
+	for pRows.Next() {
+		var pid, uid, status string
+		if err := pRows.Scan(&pid, &uid, &status); err != nil {
+			pRows.Close()
+			return "", fmt.Errorf("scan participant: %w", err)
+		}
+		allParticipantIDs = append(allParticipantIDs, pid)
+		if status == "driver" {
+			driverParticipantID, driverUserID = pid, uid
+		} else {
+			passengerUserIDs = append(passengerUserIDs, uid)
+		}
+	}
+	pRows.Close()
+	if err := pRows.Err(); err != nil {
+		return "", fmt.Errorf("iter participants: %w", err)
+	}
+
+	// Delete existing requests (request_stops cascade).
+	if len(allParticipantIDs) > 0 {
+		if _, err = sq.Delete("requests").
+			Where(sq.Eq{"participant_id": allParticipantIDs}).
+			RunWith(tx).ExecContext(ctx); err != nil {
+			return "", fmt.Errorf("delete requests: %w", err)
+		}
+	}
+
+	// Insert cancellation request + email_log for notification.
+	emailLogID := uuid.New().String()
+	if driverParticipantID != "" {
+		requestID := uuid.New().String()
+		if _, err = sq.Insert("requests").
+			Columns("id", "participant_id").
+			Values(requestID, driverParticipantID).
+			RunWith(tx).ExecContext(ctx); err != nil {
+			return "", fmt.Errorf("insert request: %w", err)
+		}
+		if _, err = sq.Insert("email_logs").
+			Columns("id", "request_id", "type", "status").
+			Values(emailLogID, requestID, "route_cancelled", "created").
+			RunWith(tx).ExecContext(ctx); err != nil {
+			return "", fmt.Errorf("insert email_log: %w", err)
+		}
+	}
+
+	// Delete route group messages.
+	if _, err = sq.Delete("route_messages").
+		Where(sq.Eq{"route_id": routeID}).
+		RunWith(tx).ExecContext(ctx); err != nil {
+		return "", fmt.Errorf("delete route_messages: %w", err)
+	}
+
+	// Delete private chats between driver and passengers (private_messages cascade).
+	if driverUserID != "" && len(passengerUserIDs) > 0 {
+		if _, err = sq.Delete("private_chats").
+			Where(sq.Or{
+				sq.And{sq.Eq{"user1_id": driverUserID}, sq.Eq{"user2_id": passengerUserIDs}},
+				sq.And{sq.Eq{"user2_id": driverUserID}, sq.Eq{"user1_id": passengerUserIDs}},
+			}).
+			RunWith(tx).ExecContext(ctx); err != nil {
+			return "", fmt.Errorf("delete private_chats: %w", err)
+		}
+	}
+
+	// Delete route stops.
+	if _, err = sq.Delete("route_stops").
+		Where(sq.Eq{"route_id": routeID}).
+		RunWith(tx).ExecContext(ctx); err != nil {
+		return "", fmt.Errorf("delete route_stops: %w", err)
+	}
+
+	// Soft-delete all participants.
+	if len(allParticipantIDs) > 0 {
+		if _, err = sq.Update("participants").
+			Set("deleted_at", sq.Expr("NOW()")).
+			Where(sq.Eq{"route_id": routeID, "deleted_at": nil}).
+			RunWith(tx).ExecContext(ctx); err != nil {
+			return "", fmt.Errorf("soft-delete participants: %w", err)
+		}
+	}
+
+	return emailLogID, nil
 }
 
 func (r *routeRepository) ListByCreator(ctx context.Context, creatorID uuid.UUID, filter domain.RouteFilter) ([]domain.Route, error) {
@@ -421,6 +567,16 @@ func fetchRouteParticipants(ctx context.Context, db *sql.DB, routeIDs []string) 
 		return nil, fmt.Errorf("fetch route participants: %w", err)
 	}
 	return result, nil
+}
+
+// publishEmailLog publishes an "email" NATS message after an email_logs insert.
+// Errors are silently ignored so a NATS hiccup never rolls back a DB transaction.
+func publishEmailLog(nc *nats.Conn, emailLogID, emailType string) {
+	if nc == nil {
+		return
+	}
+	payload := fmt.Sprintf(`{"id":%q,"type":%q}`, emailLogID, emailType)
+	nc.Publish("email", []byte(payload)) //nolint:errcheck
 }
 
 func nullablePtr(s *string) interface{} {

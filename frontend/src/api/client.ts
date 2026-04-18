@@ -28,7 +28,6 @@ async function request<T>(
     if (ok) {
       res = await fetch(BASE + path, opts)
     } else {
-      window.location.href = '/login'
       throw new ApiError(401, 'Session expired')
     }
   }

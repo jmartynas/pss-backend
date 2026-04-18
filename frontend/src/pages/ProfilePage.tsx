@@ -8,8 +8,10 @@ import type { Review, Vehicle } from '../types'
 
 function StarRating({ rating }: { rating: number }) {
   return (
-    <span className="text-sm text-gray-700">
-      {rating}/5
+    <span className="text-yellow-400 text-sm tracking-tight" aria-label={`${rating} iš 5`}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <span key={i} className={i < rating ? 'text-yellow-400' : 'text-gray-300'}>★</span>
+      ))}
     </span>
   )
 }
@@ -177,8 +179,9 @@ export default function ProfilePage() {
         <div className="flex items-center gap-3 mb-4">
           <h2 className="font-semibold text-gray-900">Atsiliepimai</h2>
           {avgRating && (
-            <span className="text-sm text-gray-500">
-              <StarRating rating={Math.round(Number(avgRating))} /> {avgRating} · {reviews.length} {reviews.length !== 1 ? 'atsiliepimai' : 'atsiliepimas'}
+            <span className="flex items-center gap-1.5 text-sm text-gray-500">
+              <StarRating rating={Math.round(Number(avgRating))} />
+              <span>{avgRating} · {reviews.length} {reviews.length === 1 ? 'atsiliepimas' : 'atsiliepimai'}</span>
             </span>
           )}
         </div>
@@ -189,8 +192,11 @@ export default function ProfilePage() {
             {reviews.map((rv) => (
               <li key={rv.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-800">{rv.author_name}</span>
-                  <StarRating rating={rv.rating} />
+                  <Link to={`/users/${rv.author_id}`} className="text-sm font-medium text-gray-800 hover:text-indigo-600 hover:underline">{rv.author_name}</Link>
+                  <span className="flex items-center gap-1">
+                    <StarRating rating={rv.rating} />
+                    <span className="text-xs text-gray-400">{rv.rating}/5</span>
+                  </span>
                 </div>
                 {rv.comment && <p className="text-sm text-gray-600">{rv.comment}</p>}
                 <p className="text-xs text-gray-400 mt-1">{new Date(rv.created_at).toLocaleDateString('lt-LT')}</p>

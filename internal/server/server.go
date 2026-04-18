@@ -10,9 +10,11 @@ import (
 
 	"github.com/jmartynas/pss-backend/internal/config"
 	"github.com/jmartynas/pss-backend/internal/handler"
+	"github.com/jmartynas/pss-backend/internal/hub"
 	"github.com/jmartynas/pss-backend/internal/middleware"
 	"github.com/jmartynas/pss-backend/internal/repository"
 	"github.com/jmartynas/pss-backend/internal/service"
+	"github.com/nats-io/nats.go"
 )
 
 const oauthUserInfoTimeout = 10 * time.Second
@@ -24,14 +26,16 @@ type Server struct {
 	tlsKey     string
 }
 
-func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
+func New(cfg *config.Config, log *slog.Logger, db *sql.DB, nc *nats.Conn) *Server {
 	// Repositories
 	sessionRepo := repository.NewSessionRepository(db)
 	userRepo := repository.NewUserRepository(db)
-	routeRepo := repository.NewRouteRepository(db)
-	appRepo := repository.NewApplicationRepository(db)
+	routeRepo := repository.NewRouteRepository(db, nc)
+	appRepo := repository.NewApplicationRepository(db, nc)
 	reviewRepo := repository.NewReviewRepository(db)
 	vehicleRepo := repository.NewVehicleRepository(db)
+	chatRepo := repository.NewChatRepository(db)
+	chatHub := hub.New()
 
 	// Services
 	routeSvc := service.NewRouteService(routeRepo, reviewRepo)
@@ -44,6 +48,7 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 	secure := cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != ""
 	userH := handler.NewUserHandler(userSvc, sessionRepo, secure, log)
 	vehicleH := handler.NewVehicleHandler(vehicleRepo, log)
+	chatH := handler.NewChatHandler(chatRepo, chatHub, log)
 
 	mux := http.NewServeMux()
 
@@ -66,6 +71,20 @@ func New(cfg *config.Config, log *slog.Logger, db *sql.DB) *Server {
 		mux.Handle("DELETE /routes/{id}", auth(http.HandlerFunc(routeH.DeleteRoute)))
 		mux.Handle("GET /routes/my", auth(http.HandlerFunc(routeH.GetMyRoutes)))
 		mux.Handle("GET /routes/participated", auth(http.HandlerFunc(routeH.GetMyParticipatedRoutes)))
+
+		// Reviews
+		mux.Handle("GET /routes/{id}/reviews/my", auth(http.HandlerFunc(routeH.GetMyReviews)))
+		mux.Handle("POST /routes/{id}/reviews", auth(http.HandlerFunc(routeH.CreateReview)))
+
+		// Chats
+		mux.Handle("GET /chats/private", auth(http.HandlerFunc(chatH.ListPrivateChats)))
+		mux.Handle("GET /chats/group", auth(http.HandlerFunc(chatH.ListGroupChats)))
+		mux.Handle("GET /chats/private/{id}/messages", auth(http.HandlerFunc(chatH.GetPrivateMessages)))
+		mux.Handle("POST /chats/private/{id}/messages", auth(http.HandlerFunc(chatH.SendPrivateMessage)))
+		mux.Handle("GET /chats/private/{id}/events", auth(http.HandlerFunc(chatH.StreamPrivate)))
+		mux.Handle("GET /chats/group/{id}/messages", auth(http.HandlerFunc(chatH.GetGroupMessages)))
+		mux.Handle("POST /chats/group/{id}/messages", auth(http.HandlerFunc(chatH.SendGroupMessage)))
+		mux.Handle("GET /chats/group/{id}/events", auth(http.HandlerFunc(chatH.StreamGroup)))
 
 		// Application management
 		mux.Handle("POST /routes/{id}/applications", auth(http.HandlerFunc(appH.Apply)))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmartynas/pss-backend/internal/domain"
@@ -57,6 +58,54 @@ func (s *RouteService) ListByCreator(ctx context.Context, creatorID uuid.UUID, f
 
 func (s *RouteService) ListByParticipant(ctx context.Context, userID uuid.UUID, filter domain.RouteFilter) ([]domain.Route, error) {
 	return s.routes.ListByParticipant(ctx, userID, filter)
+}
+
+// GetMyReviewsForRoute returns all reviews the given user has written for a route.
+func (s *RouteService) GetMyReviewsForRoute(ctx context.Context, routeID, authorID uuid.UUID) ([]domain.Review, error) {
+	return s.reviews.GetByAuthorAndRoute(ctx, authorID, routeID)
+}
+
+// CreateReview lets a route participant leave a rating for another participant
+// after the route has started. One review per (author, target, route).
+func (s *RouteService) CreateReview(ctx context.Context, routeID, authorID uuid.UUID, rating int, comment string, targetID uuid.UUID) (uuid.UUID, error) {
+	route, err := s.routes.GetByID(ctx, routeID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if route.LeavingAt == nil || route.LeavingAt.After(time.Now()) {
+		return uuid.Nil, errs.ErrRouteNotFinished
+	}
+	if authorID == targetID {
+		return uuid.Nil, errs.ErrForbidden
+	}
+	if rating < 1 || rating > 5 {
+		return uuid.Nil, errs.ErrForbidden
+	}
+
+	authorParticipant := false
+	targetParticipant := false
+	for _, p := range route.Participants {
+		if p.UserID == authorID && (p.Status == "driver" || p.Status == "approved") {
+			authorParticipant = true
+		}
+		if p.UserID == targetID && (p.Status == "driver" || p.Status == "approved") {
+			targetParticipant = true
+		}
+	}
+	if !authorParticipant {
+		return uuid.Nil, errs.ErrNotParticipant
+	}
+	if !targetParticipant {
+		return uuid.Nil, errs.ErrNotParticipant
+	}
+
+	return s.reviews.Create(ctx, domain.CreateReviewInput{
+		AuthorID: authorID,
+		TargetID: targetID,
+		RouteID:  routeID,
+		Rating:   rating,
+		Comment:  comment,
+	})
 }
 
 // Search returns routes that match the search criteria, sorted by deviation (ascending).

@@ -17,6 +17,13 @@ services:
       retries: 12
       start_period: 15s
 
+  # ── NATS ────────────────────────────────────────────────────────────────────
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    ports:
+      - "4222:4222"
+
   # ── Backend ─────────────────────────────────────────────────────────────────
   backend:
     build:
@@ -45,9 +52,65 @@ services:
       OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
       OAUTH_MICROSOFT_CLIENT_ID: ${OAUTH_MICROSOFT_CLIENT_ID:-}
       OAUTH_MICROSOFT_CLIENT_SECRET: ${OAUTH_MICROSOFT_CLIENT_SECRET:-}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
     depends_on:
       mysql:
         condition: service_healthy
+      nats:
+        condition: service_started
+
+  # ── Mailer ──────────────────────────────────────────────────────────────────
+  mailer:
+    build:
+      context: .
+      dockerfile: Dockerfile.mailer
+    restart: unless-stopped
+    environment:
+      MYSQL_DSN: ${MYSQL_USER:-root}:${MYSQL_PASSWORD:-password}@tcp(mysql:3306)/${MYSQL_DATABASE:-pss}?parseTime=true
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      MAILJET_API_KEY: ${MAILJET_API_KEY:-}
+      MAILJET_SECRET_KEY: ${MAILJET_SECRET_KEY:-}
+      FROM_EMAIL: ${FROM_EMAIL:-}
+      FROM_NAME: ${FROM_NAME:-PSS}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  # ── Admin API ───────────────────────────────────────────────────────────────
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      MYSQL_DSN: ${MYSQL_USER:-root}:${MYSQL_PASSWORD:-password}@tcp(mysql:3306)/${MYSQL_DATABASE:-pss}?parseTime=true
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-change-me-at-least-32-chars-long!}
+      ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:-http://localhost:3001}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  # ── Admin Frontend ──────────────────────────────────────────────────────────
+  frontend-admin:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - admin
 
   # ── Frontend ────────────────────────────────────────────────────────────────
   frontend:
