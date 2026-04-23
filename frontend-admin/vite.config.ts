@@ -4,10 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: '/admin/',
   server: {
     port: 3001,
     proxy: {
-      '/api': { target: 'http://localhost:8001', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') },
+      '/admin/api': { target: 'http://localhost:8001', changeOrigin: true, rewrite: (p) => p.replace(/^\/admin\/api/, '') },
     },
   },
 })
