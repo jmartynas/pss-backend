@@ -1,0 +1,133 @@
+services:
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pss}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_PASSWORD:-password}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    ports:
+      - "4222:4222"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      PORT: 8000
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pss}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      OAUTH_BASE_URL: ${OAUTH_BASE_URL:-}
+      OAUTH_JWT_SECRET: ${OAUTH_JWT_SECRET:-}
+      OAUTH_SUCCESS_URL: ${OAUTH_SUCCESS_URL:-http://localhost:3000/}
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GITHUB_CLIENT_ID: ${OAUTH_GITHUB_CLIENT_ID:-}
+      OAUTH_GITHUB_CLIENT_SECRET: ${OAUTH_GITHUB_CLIENT_SECRET:-}
+      OAUTH_MICROSOFT_CLIENT_ID: ${OAUTH_MICROSOFT_CLIENT_ID:-}
+      OAUTH_MICROSOFT_CLIENT_SECRET: ${OAUTH_MICROSOFT_CLIENT_SECRET:-}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  mailer:
+    build:
+      context: .
+      dockerfile: Dockerfile.mailer
+    restart: unless-stopped
+    environment:
+      MYSQL_DSN: ${MYSQL_USER:-root}:${MYSQL_PASSWORD:-password}@tcp(mysql:3306)/${MYSQL_DATABASE:-pss}?parseTime=true
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      MAILJET_API_KEY: ${MAILJET_API_KEY:-}
+      MAILJET_SECRET_KEY: ${MAILJET_SECRET_KEY:-}
+      FROM_EMAIL: ${FROM_EMAIL:-}
+      FROM_NAME: ${FROM_NAME:-PSS}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      MYSQL_DSN: ${MYSQL_USER:-root}:${MYSQL_PASSWORD:-password}@tcp(mysql:3306)/${MYSQL_DATABASE:-pss}?parseTime=true
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-change-me-at-least-32-chars-long!}
+      ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:-http://localhost:3001,http://localhost:8080}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  frontend-admin:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - admin
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - frontend
+      - frontend-admin
+      - admin
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+        VITE_GOOGLE_MAPS_MAP_ID: ${VITE_GOOGLE_MAPS_MAP_ID:-DEMO_MAP_ID}
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
